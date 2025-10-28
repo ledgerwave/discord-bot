@@ -125,5 +125,3 @@ MIT License © 2025 Your Name
 
 Pull requests and improvements are welcome!
 Feel free to fork and modify this bot for your own server.
-
-```
