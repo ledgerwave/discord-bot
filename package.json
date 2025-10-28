@@ -1,0 +1,30 @@
+{
+  "name": "discord-bot",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/ledgerwave/discord-bot#readme",
+  "bugs": {
+    "url": "https://github.com/ledgerwave/discord-bot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ledgerwave/discord-bot.git"
+  },
+  "license": "ISC",
+  "author": "cjs",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon --watch './**/*.ts' --exec 'ts-node' index.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.24.1",
+    "dotenv": "^17.2.3",
+    "nodemon": "^3.1.10"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
