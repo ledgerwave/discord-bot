@@ -16,9 +16,9 @@ const client = new Client({
 
 // ✅ CONFIG
 const CHECKMARK = "✅";
-const REMINDER_INTERVAL = 10 * 1000; // 10 seconds
-const MAX_MISSED_CHECKINS = 5; // 5 missed check-ins = 24h timeout
-const TIMEOUT_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+const REMINDER_INTERVAL = process.env.REMINDER_INTERVAL ? parseInt(process.env.REMINDER_INTERVAL) * 60 * 60 * 1000 : 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+const MAX_MISSED_CHECKINS = process.env.MAX_MISSED_CHECKINS ? parseInt(process.env.MAX_MISSED_CHECKINS) : 5; // 5 missed check-ins = 24h timeout
+const TIMEOUT_DURATION = process.env.TIMEOUT_DURATION ? parseInt(process.env.TIMEOUT_DURATION) * 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 24 hours in milliseconds   
 
 // ✅ MEMORY STORAGE
 const messageReactionData = new Map<string, Set<string>>();

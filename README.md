@@ -50,10 +50,13 @@ discord-checkin-bot/
 
 3. **Create a `.env` file**
 
-   ```env
-   DISCORD_TOKEN=YOUR_BOT_TOKEN
-   ANNOUNCEMENT_CHANNEL_ID=YOUR_ANNOUNCEMENT_CHANNEL_ID
-   BOT_ICON_PATH=path/to/your/icon.png
+   ```bash
+   DISCORD_TOKEN=your discord bot token
+   ANNOUNCEMENT_CHANNEL_ID=channel ID
+   BOT_ICON_PATH=./assets/icon.png
+   REMINDER_INTERVAL=2 # reminder interval (hour)
+   TIMEOUT_DURATION=24 # timeout duration (hour)
+   MAX_MISSED_CHECKINS=5 # max missed checkins
    ```
 
    * `DISCORD_TOKEN` → Your Discord bot token (from the [Discord Developer Portal](https://discord.com/developers/applications))
