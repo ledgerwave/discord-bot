@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials } from "discord.js";
+import { Client, GatewayIntentBits, Partials, TextChannel } from "discord.js";
 import * as dotenv from "dotenv";
 dotenv.config();
 
@@ -9,21 +9,25 @@ const client = new Client({
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers, // needed to fetch all members
+        GatewayIntentBits.GuildMembers,
     ],
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
+// ✅ CONFIG
 const CHECKMARK = "✅";
-const REMINDER_INTERVAL = 20 * 1000; // 2 seconds
+const REMINDER_INTERVAL = 10 * 1000; // 10 seconds
+const MAX_MISSED_CHECKINS = 5; // 5 missed check-ins = 24h timeout
+const TIMEOUT_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
-// Tracks reactions per message: messageId -> Set of userIds
+// ✅ MEMORY STORAGE
 const messageReactionData = new Map<string, Set<string>>();
+const missedCheckins = new Map<string, number>(); // userId → missed count
+const timedOutUsers = new Set<string>(); // userId → currently timed out
 
 client.once("ready", async () => {
-    console.log(`Logged in as ${client.user?.tag}`);
+    console.log(`🤖 Logged in as ${client.user?.tag}`);
 
-    // Set bot icon/avatar
     if (process.env.BOT_ICON_PATH) {
         try {
             await client.user?.setAvatar(process.env.BOT_ICON_PATH);
@@ -34,22 +38,19 @@ client.once("ready", async () => {
     }
 });
 
-// When a new message is posted in the announcement channel
+// ✅ Detect new announcement messages
 client.on("messageCreate", async (message) => {
     if (message.channel.id !== process.env.ANNOUNCEMENT_CHANNEL_ID) return;
     if (message.author.bot) return;
 
-    // React automatically
     await message.react(CHECKMARK);
-
-    // Track who reacts
     messageReactionData.set(message.id, new Set());
 
-    // Start sending reminders
+    console.log(`📢 New announcement detected: ${message.url}`);
     scheduleReminders(message);
 });
 
-// Track reactions
+// ✅ Track user reactions
 client.on("messageReactionAdd", (reaction, user) => {
     if (user.bot) return;
     if (reaction.emoji.name !== CHECKMARK) return;
@@ -58,7 +59,7 @@ client.on("messageReactionAdd", (reaction, user) => {
     reactedUsers?.add(user.id);
 });
 
-// Sends DM reminders every REMINDER_INTERVAL
+// ✅ Reminder + Timeout System
 async function scheduleReminders(message: any) {
     const guild = message.guild;
     if (!guild) return;
@@ -78,15 +79,54 @@ async function scheduleReminders(message: any) {
             return;
         }
 
-        console.log(`⏰ Sending reminders to ${unreacted.size} users`);
+        console.log(`⏰ Sending reminders to ${unreacted.size} users...`);
 
         for (const [, member] of unreacted) {
+            if (timedOutUsers.has(member.id)) continue; // skip if in timeout
+
             try {
                 await member.send(
-                    `Hi ${member.user.username}! Please check ✅ the latest announcement: ${message.url}`
+                    `👋 Hello ${member.user.username},\n\n` +
+                    `Please don't forget to check the latest announcement and react with ✅ here:\n${message.url}\n\n` +
+                    `Your participation keeps our community active and informed!\n\n` +
+                    `✨ Thank you for your attention!\n— The Community Team`
                 );
             } catch {
                 console.warn(`⚠️ Couldn't DM ${member.user.tag}`);
+            }
+
+            // Increment missed count
+            const missed = (missedCheckins.get(member.id) || 0) + 1;
+            missedCheckins.set(member.id, missed);
+
+            // If user misses 5 reminders → timeout for 24h
+            if (missed >= MAX_MISSED_CHECKINS) {
+                try {
+                    await member.timeout(TIMEOUT_DURATION, "Missed 5 check-ins (24h timeout)");
+                    timedOutUsers.add(member.id);
+                    missedCheckins.set(member.id, 0); // reset count
+                    console.log(`⏱️ Timed out ${member.user.tag} for 24 hours`);
+
+                    // Notify user via DM
+                    try {
+                        await member.send(
+                            `🚫 Hello ${member.user.username},\n\n` +
+                            `You’ve been placed in a **24-hour timeout** for missing 5 announcement check-ins.\n\n` +
+                            `Please make sure to react with ✅ to future announcements to stay active.\n\n` +
+                            `✨ We'll automatically remove the timeout after 24 hours.\n— The Community Team`
+                        );
+                    } catch {
+                        console.warn(`⚠️ Couldn't DM timeout notice to ${member.user.tag}`);
+                    }
+
+                    // Auto-remove timeout tracking after 24h
+                    setTimeout(() => {
+                        timedOutUsers.delete(member.id);
+                        console.log(`✅ ${member.user.tag} timeout expired.`);
+                    }, TIMEOUT_DURATION);
+                } catch (err) {
+                    console.warn(`❌ Failed to timeout ${member.user.tag}`, err);
+                }
             }
         }
     }, REMINDER_INTERVAL);
