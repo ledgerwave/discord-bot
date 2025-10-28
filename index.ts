@@ -1,135 +1,195 @@
-import { Client, GatewayIntentBits, Partials, TextChannel } from "discord.js";
-import * as dotenv from "dotenv";
+import {
+    Client,
+    GatewayIntentBits,
+    Partials,
+    TextChannel,
+    Message,
+    MessageReaction,
+    PartialUser,
+    User,
+    Collection,
+    Guild,
+} from 'discord.js';
+import dotenv from 'dotenv';
 dotenv.config();
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildMessageReactions,
     ],
-    partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
 });
 
-// ✅ CONFIG
-const CHECKMARK = "✅";
-const REMINDER_INTERVAL = process.env.REMINDER_INTERVAL ? parseInt(process.env.REMINDER_INTERVAL) * 60 * 60 * 1000 : 2 * 60 * 60 * 1000; // 2 hours in milliseconds
-const MAX_MISSED_CHECKINS = process.env.MAX_MISSED_CHECKINS ? parseInt(process.env.MAX_MISSED_CHECKINS) : 5; // 5 missed check-ins = 24h timeout
-const TIMEOUT_DURATION = process.env.TIMEOUT_DURATION ? parseInt(process.env.TIMEOUT_DURATION) * 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 24 hours in milliseconds   
+const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID!;
+const GENERAL_CHANNEL_ID = process.env.GENERAL_CHANNEL_ID!;
+const MODERATOR_ID = process.env.MODERATOR_ID!;
+const CHECKMARK = process.env.CHECKMARK || '✅';
+const REMINDER_INTERVAL = parseInt(process.env.REMINDER_INTERVAL || '14400000');
+const MAX_MISSED_CHECKINS = 2
 
-// ✅ MEMORY STORAGE
-const messageReactionData = new Map<string, Set<string>>();
-const missedCheckins = new Map<string, number>(); // userId → missed count
-const timedOutUsers = new Set<string>(); // userId → currently timed out
+interface UserStatus {
+    missedCheckins: number;
+    moderatorNotified: boolean;
+}
 
-client.once("ready", async () => {
-    console.log(`🤖 Logged in as ${client.user?.tag}`);
+const userStatuses = new Map<string, UserStatus>();
+const activeAnnouncements = new Map<string, Message>();
 
-    if (process.env.BOT_ICON_PATH) {
-        try {
-            await client.user?.setAvatar(process.env.BOT_ICON_PATH);
-            console.log("✅ Bot icon set successfully");
-        } catch (err) {
-            console.warn("⚠️ Failed to set bot icon:", err);
-        }
+// === Bot Ready ===
+client.once('ready', async () => {
+    console.log(`Logged in as ${client.user?.tag}!`);
+    await removeAnnouncements();
+    setInterval(processAnnouncements, REMINDER_INTERVAL);
+});
+
+// === Track new announcements ===
+client.on('messageCreate', (message) => {
+    if (message.channel.id === ANNOUNCEMENT_CHANNEL_ID && !message.author.bot) {
+        activeAnnouncements.set(message.id, message);
     }
 });
 
-// ✅ Detect new announcement messages
-client.on("messageCreate", async (message) => {
-    if (message.channel.id !== process.env.ANNOUNCEMENT_CHANNEL_ID) return;
-    if (message.author.bot) return;
+// === Track reactions ===
+client.on(
+    'messageReactionAdd',
+    async (reaction: MessageReaction | any, user: User | PartialUser) => {
+        if (user.bot) return;
 
-    await message.react(CHECKMARK);
-    messageReactionData.set(message.id, new Set());
-
-    console.log(`📢 New announcement detected: ${message.url}`);
-    scheduleReminders(message);
-});
-
-// ✅ Track user reactions
-client.on("messageReactionAdd", (reaction, user) => {
-    if (user.bot) return;
-    if (reaction.emoji.name !== CHECKMARK) return;
-
-    const reactedUsers = messageReactionData.get(reaction.message.id);
-    reactedUsers?.add(user.id);
-});
-
-// ✅ Reminder + Timeout System
-async function scheduleReminders(message: any) {
-    const guild = message.guild;
-    if (!guild) return;
-
-    const interval = setInterval(async () => {
-        const reactedUsers = messageReactionData.get(message.id);
-        if (!reactedUsers) return;
-
-        const allMembers = await guild.members.fetch();
-        const unreacted = allMembers.filter(
-            (m: any) => !m.user.bot && !reactedUsers.has(m.user.id)
-        );
-
-        if (unreacted.size === 0) {
-            clearInterval(interval);
-            console.log("✅ Everyone reacted. Stopping reminders.");
-            return;
+        if (reaction.partial) {
+            try {
+                await reaction.fetch();
+            } catch (err) {
+                console.error('Failed to fetch reaction:', err);
+                return;
+            }
         }
 
-        console.log(`⏰ Sending reminders to ${unreacted.size} users...`);
+        if (reaction.emoji.name === CHECKMARK) {
+            const key = `${user.id}-${reaction.message.id}`;
+            userStatuses.delete(key);
+        }
+    }
+);
 
-        for (const [, member] of unreacted) {
-            if (timedOutUsers.has(member.id)) continue; // skip if in timeout
+// === Periodic check for reminders ===
+async function processAnnouncements() {
+    if (activeAnnouncements.size === 0) return;
 
-            try {
-                await member.send(
-                    `👋 Hello ${member.user.username},\n\n` +
-                    `Please don't forget to check the latest announcement and react with ✅ here:\n${message.url}\n\n` +
-                    `Your participation keeps our community active and informed!\n\n` +
-                    `✨ Thank you for your attention!\n— The Community Team`
-                );
-            } catch {
-                console.warn(`⚠️ Couldn't DM ${member.user.tag}`);
-            }
+    const guildId = activeAnnouncements.values().next().value?.guildId as string;
+    const guild = await client.guilds.fetch(guildId) as unknown as Guild;
+    await guild.members.fetch();
+    const allUsers = guild.members.cache.filter((m) => !m.user.bot).map((m) => m.user);
 
-            // Increment missed count
-            const missed = (missedCheckins.get(member.id) || 0) + 1;
-            missedCheckins.set(member.id, missed);
+    const moderatorSummary: Map<string, string[]> = new Map();
 
-            // If user misses 5 reminders → timeout for 24h
-            if (missed >= MAX_MISSED_CHECKINS) {
-                try {
-                    await member.timeout(TIMEOUT_DURATION, "Missed 5 check-ins (24h timeout)");
-                    timedOutUsers.add(member.id);
-                    missedCheckins.set(member.id, 0); // reset count
-                    console.log(`⏱️ Timed out ${member.user.tag} for 24 hours`);
+    for (const user of allUsers) {
+        const unreactedAnnouncements: Message[] = [];
+        const announcementsForModerator: string[] = [];
 
-                    // Notify user via DM
-                    try {
-                        await member.send(
-                            `🚫 Hello ${member.user.username},\n\n` +
-                            `You’ve been placed in a **24-hour timeout** for missing 5 announcement check-ins.\n\n` +
-                            `Please make sure to react with ✅ to future announcements to stay active.\n\n` +
-                            `✨ We'll automatically remove the timeout after 24 hours.\n— The Community Team`
-                        );
-                    } catch {
-                        console.warn(`⚠️ Couldn't DM timeout notice to ${member.user.tag}`);
-                    }
+        for (const announcement of activeAnnouncements.values()) {
+            const reactedUsers = await announcement.reactions.cache.get(CHECKMARK)?.users.fetch() || new Map();
+            if (!reactedUsers.has(user.id)) {
+                unreactedAnnouncements.push(announcement);
 
-                    // Auto-remove timeout tracking after 24h
-                    setTimeout(() => {
-                        timedOutUsers.delete(member.id);
-                        console.log(`✅ ${member.user.tag} timeout expired.`);
-                    }, TIMEOUT_DURATION);
-                } catch (err) {
-                    console.warn(`❌ Failed to timeout ${member.user.tag}`, err);
+                const key = `${user.id}-${announcement.id}`;
+                const status = userStatuses.get(key) || { missedCheckins: 0, moderatorNotified: false };
+                status.missedCheckins += 1;
+                userStatuses.set(key, status);
+
+                if (status.missedCheckins >= MAX_MISSED_CHECKINS && !status.moderatorNotified) {
+                    announcementsForModerator.push(announcement.url);
                 }
             }
         }
-    }, REMINDER_INTERVAL);
+
+        // Send batched DM to user
+        if (unreactedAnnouncements.length > 0) {
+            try {
+                await user.send(
+                    `Hello, <@${user.id}>!\n\n` +
+                    `Please check the following announcements:\n` +
+                    unreactedAnnouncements.map((m) => `• ${m.url}`).join('\n') +
+                    `\n\nReact with ${CHECKMARK} to confirm your attendance.`
+                );
+            } catch (err) {
+                console.error(`Could not DM <@${user.id}>:`, err);
+            }
+        }
+
+        // Add to moderator summary if there are announcements to notify about
+        if (announcementsForModerator.length > 0) {
+            moderatorSummary.set(user.id, announcementsForModerator);
+        }
+    }
+
+    // Send moderator notification
+    if (moderatorSummary.size > 0) {
+        try {
+            const channel = await client.channels.fetch(GENERAL_CHANNEL_ID);
+
+            if (channel && channel.isTextBased()) {
+                // Build a single batched message
+                let notificationMessage = `Hi <@${MODERATOR_ID}>!\nThe following members have unconfirmed announcements:\n\n`;
+
+                for (const [userId, announcements] of moderatorSummary.entries()) {
+                    notificationMessage += `<@${userId}>:\n`;
+                    notificationMessage += announcements.map((url) => `• ${url}`).join('\n');
+                    notificationMessage += '\n\n';
+                }
+
+                await (channel as TextChannel).send(notificationMessage);
+                console.log(`✓ Moderator notification sent for ${moderatorSummary.size} user(s)`);
+
+                // Mark the specific announcements as moderatorNotified
+                for (const [userId, announcements] of moderatorSummary.entries()) {
+                    for (const announcementUrl of announcements) {
+                        // Find the announcement ID from the URL
+                        const announcementId = Array.from(activeAnnouncements.keys()).find(id => {
+                            const announcement = activeAnnouncements.get(id);
+                            return announcement?.url === announcementUrl;
+                        });
+
+                        if (announcementId) {
+                            const key = `${userId}-${announcementId}`;
+                            const status = userStatuses.get(key);
+                            if (status) {
+                                status.moderatorNotified = true;
+                                userStatuses.set(key, status);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed to send moderator notification:', err);
+        }
+    }
+}
+
+// Remove announcements from tracking if all users reacted
+async function removeAnnouncements() {
+    const channel = await client.channels.fetch(ANNOUNCEMENT_CHANNEL_ID);
+    if (!channel?.isTextBased() || !('messages' in channel)) return;
+
+    let lastId: string | undefined;
+
+    while (true) {
+        const options: { limit: number; before?: string } = { limit: 100 };
+        if (lastId) options.before = lastId;
+
+        const messages: Collection<string, Message> = await (channel as TextChannel).messages.fetch(options);
+        if (messages.size === 0) break;
+
+        messages.forEach((msg: Message) => activeAnnouncements.set(msg.id, msg));
+        lastId = messages.last()?.id;
+    }
+
+    console.log(`Fetched ${activeAnnouncements.size} total announcements.`);
 }
 
 client.login(process.env.DISCORD_TOKEN);

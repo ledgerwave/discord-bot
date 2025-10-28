@@ -51,16 +51,23 @@ discord-checkin-bot/
 3. **Create a `.env` file**
 
    ```bash
-   DISCORD_TOKEN=your discord bot token
-   ANNOUNCEMENT_CHANNEL_ID=channel ID
+   DISCORD_TOKEN=your_discord_bot_token_here
+   ANNOUNCEMENT_CHANNEL_ID=your_announcement_channel_id
+   GENERAL_CHANNEL_ID=your_general_channel_id
+   MODERATOR_ID=your_moderator_user_id
+   CHECKMARK=✅
+   REMINDER_INTERVAL=5000
+   MAX_MISSED_CHECKINS=5
    BOT_ICON_PATH=./assets/icon.png
-   REMINDER_INTERVAL=2 # reminder interval (hour)
-   TIMEOUT_DURATION=24 # timeout duration (hour)
-   MAX_MISSED_CHECKINS=5 # max missed checkins
    ```
 
    * `DISCORD_TOKEN` → Your Discord bot token (from the [Discord Developer Portal](https://discord.com/developers/applications))
    * `ANNOUNCEMENT_CHANNEL_ID` → Channel where announcements are posted
+   * `GENERAL_CHANNEL_ID` → Channel where moderator notifications are sent (e.g., general channel)
+   * `MODERATOR_ID` → User ID of the moderator to notify
+   * `CHECKMARK` → Emoji used for check-ins (default: ✅)
+   * `REMINDER_INTERVAL` → Interval between reminders in milliseconds (default: 5000ms = 5 seconds)
+   * `MAX_MISSED_CHECKINS` → Number of missed check-ins before notifying moderator (default: 5)
    * `BOT_ICON_PATH` → Optional path to your bot's avatar image
 
 4. **Enable Intents in Developer Portal**
