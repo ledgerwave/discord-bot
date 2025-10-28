@@ -15,7 +15,7 @@ const client = new Client({
 });
 
 const CHECKMARK = "✅";
-const REMINDER_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+const REMINDER_INTERVAL = 20 * 1000; // 2 seconds
 
 // Tracks reactions per message: messageId -> Set of userIds
 const messageReactionData = new Map<string, Set<string>>();
@@ -69,7 +69,7 @@ async function scheduleReminders(message: any) {
 
         const allMembers = await guild.members.fetch();
         const unreacted = allMembers.filter(
-            (m) => !m.user.bot && !reactedUsers.has(m.user.id)
+            (m: any) => !m.user.bot && !reactedUsers.has(m.user.id)
         );
 
         if (unreacted.size === 0) {
